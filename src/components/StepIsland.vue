@@ -10,7 +10,8 @@ const currentStep = computed(() => stepper.value.steps[stepper.value.currentIdx]
 const total = computed(() => stepper.value.steps.length)
 const idx = computed(() => stepper.value.currentIdx)
 const isLast = computed(() => idx.value === total.value - 1)
-const canAdvance = computed(() => stepper.value.running && idx.value < total.value)
+const canAdvance = computed(() => stepper.value.running)
+const canGoBack = computed(() => stepper.value.running && idx.value > 0)
 
 const TYPE_STYLE = {
   hit:    { bar: 'bg-emerald-500', text: 'text-emerald-300', badge: 'bg-emerald-500/15 border-emerald-500/30' },
@@ -64,6 +65,13 @@ function style(type) {
 
     <!-- Controles -->
     <div class="px-3 pb-3 flex items-center gap-2">
+      <button
+        @click="store.prevStep()"
+        :disabled="!canGoBack"
+        title="Volver al paso anterior"
+        class="w-8 h-8 flex items-center justify-center text-sm text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-30"
+      >←</button>
+
       <button
         @click="store.advanceStep()"
         :disabled="!canAdvance"

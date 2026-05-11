@@ -38,7 +38,7 @@ export const useSimulatorStore = defineStore('simulator', {
     tick: 0,
     _nextProcessId: 1,
     stepper: {
-      active: false,
+      active: true,
       running: false,
       steps: [],
       currentIdx: 0,
@@ -60,6 +60,7 @@ export const useSimulatorStore = defineStore('simulator', {
       _victimVpn: null,
       _victimProcessId: null,
       _victimDirty: false,
+      _snapshots: [],
     },
   }),
 
@@ -129,6 +130,178 @@ export const useSimulatorStore = defineStore('simulator', {
       this.metrics.hitRate = this.metrics.totalAccesses > 0
         ? (this.metrics.tlbHits / this.metrics.totalAccesses) * 100
         : 0
+    },
+
+    _takeSnapshot() {
+      return {
+        physicalMemory: JSON.parse(JSON.stringify(this.physicalMemory)),
+        tlb: JSON.parse(JSON.stringify(this.tlb)),
+        processes: JSON.parse(JSON.stringify(this.processes)),
+        disk: JSON.parse(JSON.stringify(this.disk)),
+        executionLog: JSON.parse(JSON.stringify(this.executionLog)),
+        tick: this.tick,
+        metrics: { ...this.metrics },
+        currentProcessId: this.currentProcessId,
+      }
+    },
+
+    _restoreSnapshot(snap) {
+      this.physicalMemory = snap.physicalMemory
+      this.tlb = snap.tlb
+      this.processes = snap.processes
+      this.disk = snap.disk
+      this.executionLog = snap.executionLog
+      this.tick = snap.tick
+      this.metrics = { ...snap.metrics }
+      this.currentProcessId = snap.currentProcessId
+    },
+
+    // Aplica las mutaciones de estado correspondientes a un paso del stepper.
+    // Se llama al LLEGAR a un paso (no al salir), para que los efectos sean
+    // visibles mientras ese paso está activo en la UI.
+    _applyStep(step) {
+      const s = this.stepper
+      switch (step.id) {
+        case 'CONTEXT_SWITCH': {
+          this.executionLog.push({
+            tick: this.tick, processId: s._processId, virtualAddress: s._virtualAddress,
+            operation: s._operation, vpn: null, offset: null,
+            result: 'CONTEXT_SWITCH', frameAssigned: null, victimVpn: null,
+            detail: `Cambio de contexto: proceso ${this.currentProcessId ?? '–'} → proceso ${s._processId}. TLB vaciada.`,
+          })
+          this.tlb = []
+          this.currentProcessId = s._processId
+          break
+        }
+        case 'PARSE': {
+          break
+        }
+        case 'PERMISSIONS': {
+          if (s._permissionError) {
+            this.executionLog.push({
+              tick: this.tick, processId: s._processId, virtualAddress: s._virtualAddress,
+              operation: s._operation, vpn: s._vpn, offset: s._offset,
+              result: 'PERMISSION_ERROR', frameAssigned: null, victimVpn: null,
+              detail: s._permissionError,
+            })
+            this.tick++
+          } else {
+            this.metrics.totalAccesses++
+          }
+          break
+        }
+        case 'TLB_LOOKUP':
+        case 'CHECK_DISK':
+        case 'SELECT_FRAME_FREE':
+        case 'SELECT_FRAME_VICTIM': {
+          break
+        }
+        case 'PAGE_TABLE': {
+          this.metrics.tlbMisses++
+          break
+        }
+        case 'PAGE_TABLE_FAULT': {
+          this.metrics.tlbMisses++
+          this.metrics.pageFaults++
+          break
+        }
+        case 'APPLY_HIT': {
+          this.metrics.tlbHits++
+          const tlbE = this._tlbLookup(s._processId, s._vpn)
+          if (tlbE) tlbE.lastAccessed = this.tick
+          const frameH = this.physicalMemory[s._pfn]
+          if (frameH) frameH.lastAccessed = this.tick
+          if (s._operation === 'W') {
+            const procH = this.processes.find(p => p.id === s._processId)
+            const pgH = procH?.pageTable.find(p => p.vpn === s._vpn)
+            if (pgH) pgH.dirty = true
+            if (frameH) frameH.dirty = true
+          }
+          break
+        }
+        case 'APPLY_MISS': {
+          this._tlbInsert(s._processId, s._vpn, s._pfn)
+          const frameM = this.physicalMemory[s._pfn]
+          if (frameM) frameM.lastAccessed = this.tick
+          if (s._operation === 'W') {
+            const procM = this.processes.find(p => p.id === s._processId)
+            const pgM = procM?.pageTable.find(p => p.vpn === s._vpn)
+            if (pgM) pgM.dirty = true
+            if (frameM) frameM.dirty = true
+          }
+          break
+        }
+        case 'EVICT': {
+          const vProc = this.processes.find(p => p.id === s._victimProcessId)
+          const vPage = vProc?.pageTable.find(p => p.vpn === s._victimVpn)
+          if (vPage) { vPage.valid = false; vPage.pfn = null; vPage.dirty = false }
+          const existIdx = this.disk.findIndex(d => d.processId === s._victimProcessId && d.vpn === s._victimVpn)
+          if (existIdx !== -1) this.disk.splice(existIdx, 1)
+          this.disk.push({ processId: s._victimProcessId, vpn: s._victimVpn, dirty: s._victimDirty, evictedAt: this.tick, initial: false })
+          this.metrics.swapOuts++
+          this.tlb = this.tlb.filter(e => !(e.processId === s._victimProcessId && e.vpn === s._victimVpn))
+          break
+        }
+        case 'LOAD_PAGE': {
+          if (s._isSwapIn && s._diskIdx !== -1) {
+            this.disk.splice(s._diskIdx, 1)
+            this.metrics.swapIns++
+          }
+          const frameL = this.physicalMemory[s._pfn]
+          if (frameL) {
+            frameL.processId = s._processId; frameL.vpn = s._vpn
+            frameL.dirty = false; frameL.loadedAt = this.tick; frameL.lastAccessed = this.tick
+          }
+          const pEntry = this.processes.find(p => p.id === s._processId)?.pageTable.find(p => p.vpn === s._vpn)
+          if (pEntry) { pEntry.valid = true; pEntry.pfn = s._pfn; pEntry.dirty = false }
+          break
+        }
+        case 'UPDATE_TLB': {
+          this._tlbInsert(s._processId, s._vpn, s._pfn)
+          if (s._operation === 'W') {
+            const procU = this.processes.find(p => p.id === s._processId)
+            const pgU = procU?.pageTable.find(p => p.vpn === s._vpn)
+            if (pgU) pgU.dirty = true
+            const frameU = this.physicalMemory[s._pfn]
+            if (frameU) frameU.dirty = true
+          }
+          break
+        }
+        case 'FINALIZE': {
+          const baseLog = {
+            tick: this.tick, processId: s._processId, virtualAddress: s._virtualAddress,
+            operation: s._operation, vpn: s._vpn, offset: s._offset,
+          }
+          if (s._tlbHit) {
+            this.executionLog.push({
+              ...baseLog, result: 'TLB_HIT', frameAssigned: s._pfn, victimVpn: null,
+              detail: `TLB HIT: VPN ${s._vpn} → marco físico ${s._pfn}. No se consultó la tabla de páginas.`,
+            })
+          } else if (s._pageValid) {
+            this.executionLog.push({
+              ...baseLog, result: 'TLB_MISS', frameAssigned: s._pfn, victimVpn: null,
+              detail: `TLB MISS: VPN ${s._vpn} en tabla de páginas → marco ${s._pfn}. Traducción cargada en TLB.`,
+            })
+          } else {
+            this.executionLog.push({
+              ...baseLog, result: 'PAGE_FAULT', frameAssigned: s._pfn, victimVpn: s._victimVpn,
+              swapIn: s._isSwapIn,
+              detail: (() => {
+                if (s._isSwapIn && s._victimVpn !== null)
+                  return `PAGE FAULT (swap-in): VPN ${s._vpn} recuperada del disco. Víctima VPN ${s._victimVpn} desalojada del marco ${s._pfn}.`
+                if (s._isSwapIn)
+                  return `PAGE FAULT (swap-in): VPN ${s._vpn} recuperada del disco. Marco libre ${s._pfn} asignado.`
+                if (s._victimVpn !== null)
+                  return `PAGE FAULT (carga inicial): VPN ${s._vpn} no estaba en RAM ni en disco. Víctima VPN ${s._victimVpn} desalojada del marco ${s._pfn}.`
+                return `PAGE FAULT (carga inicial): VPN ${s._vpn} no estaba en RAM ni en disco. Marco libre ${s._pfn} asignado.`
+              })(),
+            })
+          }
+          this.tick++
+          this._recalcHitRate()
+          break
+        }
+      }
     },
 
     // ─── Acciones públicas ─────────────────────────────────────────────────
@@ -206,7 +379,13 @@ export const useSimulatorStore = defineStore('simulator', {
       }
       if (s._permissionError) {
         steps.push({ id: 'PERMISSIONS', label: 'Verificar permisos', detail: s._permissionError, type: 'error' })
-        s.steps = steps; s.currentIdx = 0; s.animationKey++; s.running = true
+        s.steps = steps
+        s.currentIdx = 0
+        s.animationKey++
+        s._snapshots = []
+        s._snapshots[0] = this._takeSnapshot()
+        s.running = true
+        this._applyStep(steps[0])
         return
       }
       steps.push({
@@ -337,164 +516,34 @@ export const useSimulatorStore = defineStore('simulator', {
       s.steps = steps
       s.currentIdx = 0
       s.animationKey++
+      s._snapshots = []
+      s._snapshots[0] = this._takeSnapshot()
       s.running = true
+      this._applyStep(steps[0])
     },
 
     advanceStep() {
       const s = this.stepper
-      if (!s.running || s.currentIdx >= s.steps.length) return
+      if (!s.running) return
 
-      const step = s.steps[s.currentIdx]
-      s.currentIdx++
-      s.animationKey++
-
-      switch (step.id) {
-        case 'CONTEXT_SWITCH': {
-          this.executionLog.push({
-            tick: this.tick, processId: s._processId, virtualAddress: s._virtualAddress,
-            operation: s._operation, vpn: null, offset: null,
-            result: 'CONTEXT_SWITCH', frameAssigned: null, victimVpn: null,
-            detail: `Cambio de contexto: proceso ${this.currentProcessId ?? '–'} → proceso ${s._processId}. TLB vaciada.`,
-          })
-          this.tlb = []
-          this.currentProcessId = s._processId
-          break
-        }
-        case 'PARSE': {
-          // Puramente informativo — sin mutaciones
-          break
-        }
-        case 'PERMISSIONS': {
-          if (s._permissionError) {
-            this.executionLog.push({
-              tick: this.tick, processId: s._processId, virtualAddress: s._virtualAddress,
-              operation: s._operation, vpn: s._vpn, offset: s._offset,
-              result: 'PERMISSION_ERROR', frameAssigned: null, victimVpn: null,
-              detail: s._permissionError,
-            })
-            this.tick++
-            s.running = false
-            return
-          }
-          this.metrics.totalAccesses++
-          break
-        }
-        case 'TLB_LOOKUP':
-        case 'CHECK_DISK':
-        case 'SELECT_FRAME_FREE':
-        case 'SELECT_FRAME_VICTIM': {
-          // Informativos — sin mutaciones
-          break
-        }
-        case 'PAGE_TABLE': {
-          // TLB miss, página en RAM → contabilizar TLB miss
-          this.metrics.tlbMisses++
-          break
-        }
-        case 'PAGE_TABLE_FAULT': {
-          // TLB miss + página no en RAM → TLB miss + page fault
-          this.metrics.tlbMisses++
-          this.metrics.pageFaults++
-          break
-        }
-        case 'APPLY_HIT': {
-          this.metrics.tlbHits++
-          const tlbE = this._tlbLookup(s._processId, s._vpn)
-          if (tlbE) tlbE.lastAccessed = this.tick
-          const frameH = this.physicalMemory[s._pfn]
-          if (frameH) frameH.lastAccessed = this.tick
-          if (s._operation === 'W') {
-            const procH = this.processes.find(p => p.id === s._processId)
-            const pgH = procH?.pageTable.find(p => p.vpn === s._vpn)
-            if (pgH) pgH.dirty = true
-            if (frameH) frameH.dirty = true
-          }
-          break
-        }
-        case 'APPLY_MISS': {
-          this._tlbInsert(s._processId, s._vpn, s._pfn)
-          const frameM = this.physicalMemory[s._pfn]
-          if (frameM) frameM.lastAccessed = this.tick
-          if (s._operation === 'W') {
-            const procM = this.processes.find(p => p.id === s._processId)
-            const pgM = procM?.pageTable.find(p => p.vpn === s._vpn)
-            if (pgM) pgM.dirty = true
-            if (frameM) frameM.dirty = true
-          }
-          break
-        }
-        case 'EVICT': {
-          const vProc = this.processes.find(p => p.id === s._victimProcessId)
-          const vPage = vProc?.pageTable.find(p => p.vpn === s._victimVpn)
-          if (vPage) { vPage.valid = false; vPage.pfn = null; vPage.dirty = false }
-          const existIdx = this.disk.findIndex(d => d.processId === s._victimProcessId && d.vpn === s._victimVpn)
-          if (existIdx !== -1) this.disk.splice(existIdx, 1)
-          this.disk.push({ processId: s._victimProcessId, vpn: s._victimVpn, dirty: s._victimDirty, evictedAt: this.tick, initial: false })
-          this.metrics.swapOuts++
-          this.tlb = this.tlb.filter(e => !(e.processId === s._victimProcessId && e.vpn === s._victimVpn))
-          break
-        }
-        case 'LOAD_PAGE': {
-          if (s._isSwapIn && s._diskIdx !== -1) {
-            this.disk.splice(s._diskIdx, 1)
-            this.metrics.swapIns++
-          }
-          const frameL = this.physicalMemory[s._pfn]
-          if (frameL) {
-            frameL.processId = s._processId; frameL.vpn = s._vpn
-            frameL.dirty = false; frameL.loadedAt = this.tick; frameL.lastAccessed = this.tick
-          }
-          const pEntry = this.processes.find(p => p.id === s._processId)?.pageTable.find(p => p.vpn === s._vpn)
-          if (pEntry) { pEntry.valid = true; pEntry.pfn = s._pfn; pEntry.dirty = false }
-          break
-        }
-        case 'UPDATE_TLB': {
-          this._tlbInsert(s._processId, s._vpn, s._pfn)
-          if (s._operation === 'W') {
-            const procU = this.processes.find(p => p.id === s._processId)
-            const pgU = procU?.pageTable.find(p => p.vpn === s._vpn)
-            if (pgU) pgU.dirty = true
-            const frameU = this.physicalMemory[s._pfn]
-            if (frameU) frameU.dirty = true
-          }
-          break
-        }
-        case 'FINALIZE': {
-          const baseLog = {
-            tick: this.tick, processId: s._processId, virtualAddress: s._virtualAddress,
-            operation: s._operation, vpn: s._vpn, offset: s._offset,
-          }
-          if (s._tlbHit) {
-            this.executionLog.push({
-              ...baseLog, result: 'TLB_HIT', frameAssigned: s._pfn, victimVpn: null,
-              detail: `TLB HIT: VPN ${s._vpn} → marco físico ${s._pfn}. No se consultó la tabla de páginas.`,
-            })
-          } else if (s._pageValid) {
-            this.executionLog.push({
-              ...baseLog, result: 'TLB_MISS', frameAssigned: s._pfn, victimVpn: null,
-              detail: `TLB MISS: VPN ${s._vpn} en tabla de páginas → marco ${s._pfn}. Traducción cargada en TLB.`,
-            })
-          } else {
-            this.executionLog.push({
-              ...baseLog, result: 'PAGE_FAULT', frameAssigned: s._pfn, victimVpn: s._victimVpn,
-              swapIn: s._isSwapIn,
-              detail: (() => {
-                if (s._isSwapIn && s._victimVpn !== null)
-                  return `PAGE FAULT (swap-in): VPN ${s._vpn} recuperada del disco. Víctima VPN ${s._victimVpn} desalojada del marco ${s._pfn}.`
-                if (s._isSwapIn)
-                  return `PAGE FAULT (swap-in): VPN ${s._vpn} recuperada del disco. Marco libre ${s._pfn} asignado.`
-                if (s._victimVpn !== null)
-                  return `PAGE FAULT (carga inicial): VPN ${s._vpn} no estaba en RAM ni en disco. Víctima VPN ${s._victimVpn} desalojada del marco ${s._pfn}.`
-                return `PAGE FAULT (carga inicial): VPN ${s._vpn} no estaba en RAM ni en disco. Marco libre ${s._pfn} asignado.`
-              })(),
-            })
-          }
-          this.tick++
-          this._recalcHitRate()
-          s.running = false
-          break
-        }
+      if (s.currentIdx >= s.steps.length - 1) {
+        s.running = false
+        return
       }
+
+      const nextIdx = s.currentIdx + 1
+      s._snapshots[nextIdx] = this._takeSnapshot()
+      s.currentIdx = nextIdx
+      s.animationKey++
+      this._applyStep(s.steps[nextIdx])
+    },
+
+    prevStep() {
+      const s = this.stepper
+      if (!s.running || s.currentIdx <= 0) return
+      this._restoreSnapshot(s._snapshots[s.currentIdx])
+      s.currentIdx--
+      s.animationKey++
     },
 
     executeInstruction(processId, virtualAddress, operation) {
@@ -735,6 +784,7 @@ export const useSimulatorStore = defineStore('simulator', {
       const wasActive = this.stepper.active
       this.stepper = {
         active: wasActive, running: false, steps: [], currentIdx: 0, animationKey: 0,
+        _snapshots: [],
         _processId: null, _virtualAddress: null, _operation: null,
         _vpn: null, _offset: null, _isContextSwitch: false, _permissionError: null,
         _tlbHit: false, _pageValid: false, _pfn: null,

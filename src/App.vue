@@ -108,7 +108,7 @@
     >
       <div
         v-if="store.stepper.running"
-        class="fixed bottom-6 right-6 w-96 z-50 rounded-2xl shadow-2xl shadow-black/60 ring-1 ring-white/10"
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 w-96 z-50 rounded-2xl shadow-2xl shadow-black/60 ring-1 ring-white/10"
       >
         <StepIsland />
       </div>

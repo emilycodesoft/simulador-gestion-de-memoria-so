@@ -29,8 +29,10 @@ function stepStatus(idx) {
   return 'pending'
 }
 
-const canAdvance = computed(() =>
-  stepper.value.running && stepper.value.currentIdx < stepper.value.steps.length,
+const canAdvance = computed(() => stepper.value.running)
+
+const canGoBack = computed(() =>
+  stepper.value.running && stepper.value.currentIdx > 0,
 )
 
 const isLastStep = computed(() =>
@@ -113,6 +115,13 @@ const isLastStep = computed(() =>
 
     <!-- Botones de control -->
     <div class="px-4 py-3 border-t border-gray-700/60 bg-gray-800/40 flex items-center gap-2">
+      <button
+        @click="store.prevStep()"
+        :disabled="!canGoBack"
+        class="text-xs text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded transition-colors disabled:opacity-30"
+        title="Volver al paso anterior"
+      >←</button>
+
       <button
         @click="store.advanceStep()"
         :disabled="!canAdvance"
