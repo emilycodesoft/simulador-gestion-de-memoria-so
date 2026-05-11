@@ -66,6 +66,26 @@ const missRate = computed(() =>
         </div>
       </div>
 
+      <!-- Fila inferior: Swap-outs · Swap-ins -->
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-orange-500/10 border border-orange-500/20 rounded-lg px-3 py-2.5">
+          <p class="text-[10px] uppercase tracking-widest text-orange-500/70 font-medium mb-1">
+            Swap-outs
+          </p>
+          <p class="text-2xl font-mono font-bold text-orange-400">
+            {{ metrics.swapOuts }}
+          </p>
+        </div>
+        <div class="bg-sky-500/10 border border-sky-500/20 rounded-lg px-3 py-2.5">
+          <p class="text-[10px] uppercase tracking-widest text-sky-500/70 font-medium mb-1">
+            Swap-ins
+          </p>
+          <p class="text-2xl font-mono font-bold text-sky-400">
+            {{ metrics.swapIns }}
+          </p>
+        </div>
+      </div>
+
       <!-- Hit Rate — tarjeta con barra de progreso -->
       <div class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-3">
         <div class="flex items-baseline justify-between mb-2">
