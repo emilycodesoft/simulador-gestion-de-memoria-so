@@ -20,6 +20,7 @@
             <ConfigPanel class="bg-gray-900 rounded p-3" />
             <ProcessManager class="bg-gray-900 rounded p-3" />
             <InstructionInput class="bg-gray-900 rounded p-3" />
+            <StepPanel v-if="store.stepper.running" class="bg-gray-900 rounded p-3 border border-blue-800/50" />
           </div>
         </section>
 
@@ -109,7 +110,7 @@
         v-if="store.stepper.running"
         class="fixed bottom-6 right-6 w-96 z-50 rounded-2xl shadow-2xl shadow-black/60 ring-1 ring-white/10"
       >
-        <StepPanel />
+        <StepIsland />
       </div>
     </Transition>
   </Teleport>
@@ -130,6 +131,7 @@ import TLBView from './components/TLBView.vue'
 import ExecutionLog from './components/ExecutionLog.vue'
 import DiskView from './components/DiskView.vue'
 import StepPanel from './components/StepPanel.vue'
+import StepIsland from './components/StepIsland.vue'
 
 const SUBSYSTEM_IDS = {
   tlb: 'section-tlb',
