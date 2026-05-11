@@ -133,6 +133,15 @@ function cfg(result) {
               {{ cfg(entry.result).label }}
             </span>
 
+            <!-- Sub-badge swap-in / carga inicial (solo en PAGE_FAULT) -->
+            <span
+              v-if="entry.result === 'PAGE_FAULT' && entry.swapIn !== undefined"
+              class="text-[9px] font-mono px-1 py-0.5 rounded"
+              :class="entry.swapIn ? 'bg-sky-500/15 text-sky-400' : 'bg-gray-600/20 text-gray-500'"
+            >
+              {{ entry.swapIn ? 'swap-in' : 'inicial' }}
+            </span>
+
             <!-- Marco asignado (si aplica) -->
             <span
               v-if="entry.frameAssigned !== null && entry.frameAssigned !== undefined"

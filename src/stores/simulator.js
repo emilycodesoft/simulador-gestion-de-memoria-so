@@ -23,6 +23,7 @@ export const useSimulatorStore = defineStore('simulator', {
     physicalMemory: makePhysicalMemory(8),
     processes: [],
     tlb: [],
+    disk: [],
     currentProcessId: null,
     metrics: {
       tlbHits: 0,
@@ -30,6 +31,8 @@ export const useSimulatorStore = defineStore('simulator', {
       pageFaults: 0,
       totalAccesses: 0,
       hitRate: 0,
+      swapOuts: 0,
+      swapIns: 0,
     },
     executionLog: [],
     tick: 0,
@@ -212,6 +215,10 @@ export const useSimulatorStore = defineStore('simulator', {
           // ── Paso 6: PAGE FAULT — la página no está en RAM ─────────────
           this.metrics.pageFaults++
 
+          // Verificar si la página faulteada ya estuvo en RAM y fue enviada al disco.
+          const diskIdx = this.disk.findIndex(d => d.processId === processId && d.vpn === vpn)
+          const isSwapIn = diskIdx !== -1
+
           let pfn
           let victimVpn = null
 
@@ -231,17 +238,6 @@ export const useSimulatorStore = defineStore('simulator', {
             victimVpn = victim.vpn
             pfn = victim.frameId
 
-            // Si la víctima está dirty, simular escritura a disco.
-            if (victim.dirty) {
-              this.executionLog.push({
-                tick: this.tick, processId, virtualAddress, operation, vpn, offset,
-                result: 'PAGE_FAULT',
-                frameAssigned: pfn,
-                victimVpn,
-                detail: `Escribiendo a disco la página sucia VPN ${victimVpn} (marco ${pfn}) antes de reemplazo.`,
-              })
-            }
-
             // Invalidar la víctima en la tabla de páginas de su proceso.
             const victimProcess = this.processes.find(p => p.id === victim.processId)
             if (victimProcess) {
@@ -252,6 +248,19 @@ export const useSimulatorStore = defineStore('simulator', {
                 victimPage.dirty = false
               }
             }
+
+            // Enviar la víctima al disco (swap-out).
+            const existingDiskIdx = this.disk.findIndex(
+              d => d.processId === victim.processId && d.vpn === victim.vpn,
+            )
+            if (existingDiskIdx !== -1) this.disk.splice(existingDiskIdx, 1)
+            this.disk.push({
+              processId: victim.processId,
+              vpn: victim.vpn,
+              dirty: victim.dirty,
+              evictedAt: this.tick,
+            })
+            this.metrics.swapOuts++
 
             // Eliminar cualquier entrada TLB de la víctima.
             this.tlb = this.tlb.filter(
@@ -271,6 +280,12 @@ export const useSimulatorStore = defineStore('simulator', {
           pageEntry.pfn = pfn
           pageEntry.dirty = false
 
+          // Remover del disco si era un swap-in.
+          if (isSwapIn) {
+            this.disk.splice(diskIdx, 1)
+            this.metrics.swapIns++
+          }
+
           // 6e. Cargar la nueva traducción en la TLB.
           this._tlbInsert(processId, vpn, pfn)
 
@@ -286,9 +301,16 @@ export const useSimulatorStore = defineStore('simulator', {
             result: 'PAGE_FAULT',
             frameAssigned: pfn,
             victimVpn,
-            detail: victimVpn !== null
-              ? `PAGE FAULT: VPN ${vpn} no estaba en RAM. Víctima VPN ${victimVpn} desalojada del marco ${pfn}. Página cargada y TLB actualizado.`
-              : `PAGE FAULT: VPN ${vpn} no estaba en RAM. Marco libre ${pfn} asignado. Página cargada y TLB actualizado.`,
+            swapIn: isSwapIn,
+            detail: (() => {
+              if (isSwapIn && victimVpn !== null)
+                return `PAGE FAULT (swap-in): VPN ${vpn} recuperada del disco. Víctima VPN ${victimVpn} desalojada del marco ${pfn}.`
+              if (isSwapIn)
+                return `PAGE FAULT (swap-in): VPN ${vpn} recuperada del disco. Marco libre ${pfn} asignado.`
+              if (victimVpn !== null)
+                return `PAGE FAULT (carga inicial): VPN ${vpn} no estaba en RAM ni en disco. Víctima VPN ${victimVpn} desalojada del marco ${pfn}.`
+              return `PAGE FAULT (carga inicial): VPN ${vpn} no estaba en RAM ni en disco. Marco libre ${pfn} asignado.`
+            })(),
           })
         }
       }
@@ -304,8 +326,9 @@ export const useSimulatorStore = defineStore('simulator', {
       this.physicalMemory = makePhysicalMemory(this.config.frameCount)
       this.processes = []
       this.tlb = []
+      this.disk = []
       this.currentProcessId = null
-      this.metrics = { tlbHits: 0, tlbMisses: 0, pageFaults: 0, totalAccesses: 0, hitRate: 0 }
+      this.metrics = { tlbHits: 0, tlbMisses: 0, pageFaults: 0, totalAccesses: 0, hitRate: 0, swapOuts: 0, swapIns: 0 }
       this.executionLog = []
       this.tick = 0
       this._nextProcessId = 1
@@ -323,6 +346,10 @@ export const useSimulatorStore = defineStore('simulator', {
         dirty: false,
       }))
       this.processes.push({ id, name, pageTable })
+      // Todas las páginas empiezan en disco — demand paging.
+      pageTable.forEach(page => {
+        this.disk.push({ processId: id, vpn: page.vpn, dirty: false, evictedAt: this.tick, initial: true })
+      })
       return id
     },
 
@@ -336,6 +363,7 @@ export const useSimulatorStore = defineStore('simulator', {
         }
       })
       this.tlb = this.tlb.filter(e => e.processId !== processId)
+      this.disk = this.disk.filter(d => d.processId !== processId)
       this.processes = this.processes.filter(p => p.id !== processId)
       if (this.currentProcessId === processId) this.currentProcessId = null
     },

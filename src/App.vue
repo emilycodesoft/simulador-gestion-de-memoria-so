@@ -70,6 +70,14 @@
              </div>
           </div>
 
+          <!-- Almacenamiento Secundario (Disco) -->
+          <div class="bg-gray-800 p-4 rounded-lg border border-orange-900/50 shadow-inner">
+            <h3 class="text-orange-400 font-bold mb-3 text-sm flex items-center gap-2">
+              💾 Almacenamiento Secundario (Disco / Swap)
+            </h3>
+            <DiskView />
+          </div>
+
         </section>
       </div>
     
@@ -97,4 +105,5 @@ import PhysicalMemoryView from './components/PhysicalMemoryView.vue'
 import PageTableView from './components/PageTableView.vue'
 import TLBView from './components/TLBView.vue'
 import ExecutionLog from './components/ExecutionLog.vue'
+import DiskView from './components/DiskView.vue'
 </script>
