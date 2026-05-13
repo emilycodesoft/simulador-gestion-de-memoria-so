@@ -141,6 +141,8 @@
 <script setup>
 import { watch } from 'vue'
 import { useSimulatorStore } from './stores/simulator'
+import { SUBSYSTEM_IDS } from './constants'
+
 const store = useSimulatorStore()
 
 import ConfigPanel from './components/ConfigPanel.vue'
@@ -154,14 +156,6 @@ import ExecutionLog from './components/ExecutionLog.vue'
 import DiskView from './components/DiskView.vue'
 import StepPanel from './components/StepPanel.vue'
 import StepIsland from './components/StepIsland.vue'
-
-const SUBSYSTEM_IDS = {
-  tlb: 'section-tlb',
-  pagetable: 'section-pagetable',
-  ram: 'section-ram',
-  disk: 'section-disk',
-  instruction: 'section-instruction',
-}
 
 watch(() => store.activeSubsystem, (subsystem) => {
   if (!subsystem) return

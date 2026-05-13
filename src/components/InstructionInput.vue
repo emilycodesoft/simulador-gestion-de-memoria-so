@@ -119,6 +119,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import { useSimulatorStore } from '../stores/simulator'
+import { RESULT_CONFIG } from '../constants'
 
 const store = useSimulatorStore()
 
@@ -178,13 +179,6 @@ const lastEntry = computed(() => {
   }
   return null
 })
-
-const RESULT_CONFIG = {
-  TLB_HIT:          { label: 'TLB HIT',       border: 'border-green-700',  text: 'text-green-400' },
-  TLB_MISS:         { label: 'TLB MISS',       border: 'border-yellow-600', text: 'text-yellow-400' },
-  PAGE_FAULT:       { label: 'PAGE FAULT',     border: 'border-red-700',    text: 'text-red-400' },
-  PERMISSION_ERROR: { label: 'ERROR PERMISO',  border: 'border-red-900',    text: 'text-red-600' },
-}
 
 const resultBorderClass = computed(() =>
   lastEntry.value ? (RESULT_CONFIG[lastEntry.value.result]?.border ?? 'border-gray-700') + ' bg-gray-800' : ''
