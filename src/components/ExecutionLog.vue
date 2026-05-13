@@ -83,8 +83,8 @@ function cfg(result) {
     <!-- Lista con scroll — más reciente arriba -->
     <div v-else class="overflow-y-auto max-h-72 divide-y divide-gray-800/60">
       <div
-        v-for="entry in reversedLog"
-        :key="entry.tick"
+        v-for="(entry, i) in reversedLog"
+        :key="i"
         class="flex items-start gap-3 px-4 py-2.5 transition-colors duration-150"
         :class="cfg(entry.result).row"
       >
@@ -133,6 +133,14 @@ function cfg(result) {
               {{ cfg(entry.result).label }}
             </span>
 
+            <!-- Badge TLB MISS implícito en PAGE_FAULT -->
+            <span
+              v-if="entry.result === 'PAGE_FAULT' && entry.tlbMiss"
+              class="text-[9px] font-mono px-1 py-0.5 rounded bg-yellow-500/15 text-yellow-400"
+            >
+              TLB MISS
+            </span>
+
             <!-- Sub-badge swap-in / carga inicial (solo en PAGE_FAULT) -->
             <span
               v-if="entry.result === 'PAGE_FAULT' && entry.swapIn !== undefined"
@@ -140,6 +148,14 @@ function cfg(result) {
               :class="entry.swapIn ? 'bg-sky-500/15 text-sky-400' : 'bg-gray-600/20 text-gray-500'"
             >
               {{ entry.swapIn ? 'swap-in' : 'inicial' }}
+            </span>
+
+            <!-- Badge swap-out cuando hubo desalojo de víctima -->
+            <span
+              v-if="entry.result === 'PAGE_FAULT' && entry.swapOut"
+              class="text-[9px] font-mono px-1 py-0.5 rounded bg-orange-500/15 text-orange-400"
+            >
+              swap-out
             </span>
 
             <!-- Marco asignado (si aplica) -->

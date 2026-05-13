@@ -73,8 +73,10 @@ export const useSimulatorStore = defineStore('simulator', {
       const step = state.stepper.steps[state.stepper.currentIdx]
       if (!step) return null
       const map = {
-        TLB_LOOKUP: 'tlb', APPLY_HIT: 'tlb', UPDATE_TLB: 'tlb',
-        PAGE_TABLE: 'pagetable', PAGE_TABLE_FAULT: 'pagetable', APPLY_MISS: 'pagetable',
+        CONTEXT_SWITCH: 'instruction',
+        PARSE: 'tlb',
+        TLB_LOOKUP: 'tlb', APPLY_HIT: 'tlb', UPDATE_TLB: 'tlb', APPLY_MISS: 'tlb',
+        PAGE_TABLE: 'pagetable', PAGE_TABLE_FAULT: 'pagetable',
         CHECK_DISK: 'disk',
         SELECT_FRAME_FREE: 'ram', SELECT_FRAME_VICTIM: 'ram', EVICT: 'ram', LOAD_PAGE: 'ram',
       }
@@ -286,14 +288,14 @@ export const useSimulatorStore = defineStore('simulator', {
           } else {
             this.executionLog.push({
               ...baseLog, result: 'PAGE_FAULT', frameAssigned: s._pfn, victimVpn: s._victimVpn,
-              swapIn: s._isSwapIn,
+              tlbMiss: true, swapIn: s._isSwapIn, swapOut: s._victimVpn !== null,
               detail: (() => {
                 if (s._isSwapIn && s._victimVpn !== null)
                   return `PAGE FAULT (swap-in): VPN ${s._vpn} recuperada del disco. Víctima VPN ${s._victimVpn} desalojada del marco ${s._pfn}.`
                 if (s._isSwapIn)
                   return `PAGE FAULT (swap-in): VPN ${s._vpn} recuperada del disco. Marco libre ${s._pfn} asignado.`
                 if (s._victimVpn !== null)
-                  return `PAGE FAULT (carga inicial): VPN ${s._vpn} no estaba en RAM ni en disco. Víctima VPN ${s._victimVpn} desalojada del marco ${s._pfn}.`
+                  return `PAGE FAULT (carga inicial): VPN ${s._vpn} no estaba en RAM ni en disco. Víctima VPN ${s._victimVpn} desalojada ("swap out") del marco ${s._pfn}.`
                 return `PAGE FAULT (carga inicial): VPN ${s._vpn} no estaba en RAM ni en disco. Marco libre ${s._pfn} asignado.`
               })(),
             })
@@ -491,7 +493,7 @@ export const useSimulatorStore = defineStore('simulator', {
             steps.push({
               id: 'EVICT',
               label: 'Desalojar víctima',
-              detail: `Invalidar VPN ${victim.vpn} en tabla de páginas, eliminar de TLB, enviar a disco${victim.dirty ? ' (dirty)' : ' (clean)'}.`,
+              detail: `Invalidar VPN ${victim.vpn} en tabla de páginas, eliminar de TLB, enviar al disco ("swap out")${victim.dirty ? ' (dirty)' : ' (clean)'}.`,
               type: victim.dirty ? 'fault' : 'miss',
             })
           }
@@ -755,14 +757,14 @@ export const useSimulatorStore = defineStore('simulator', {
             result: 'PAGE_FAULT',
             frameAssigned: pfn,
             victimVpn,
-            swapIn: isSwapIn,
+            tlbMiss: true, swapIn: isSwapIn, swapOut: victimVpn !== null,
             detail: (() => {
               if (isSwapIn && victimVpn !== null)
                 return `PAGE FAULT (swap-in): VPN ${vpn} recuperada del disco. Víctima VPN ${victimVpn} desalojada del marco ${pfn}.`
               if (isSwapIn)
                 return `PAGE FAULT (swap-in): VPN ${vpn} recuperada del disco. Marco libre ${pfn} asignado.`
               if (victimVpn !== null)
-                return `PAGE FAULT (carga inicial): VPN ${vpn} no estaba en RAM ni en disco. Víctima VPN ${victimVpn} desalojada del marco ${pfn}.`
+                return `PAGE FAULT (carga inicial): VPN ${vpn} no estaba en RAM ni en disco. Víctima VPN ${victimVpn} desalojada ("swap out") del marco ${pfn}.`
               return `PAGE FAULT (carga inicial): VPN ${vpn} no estaba en RAM ni en disco. Marco libre ${pfn} asignado.`
             })(),
           })

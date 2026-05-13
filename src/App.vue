@@ -19,8 +19,30 @@
           <div class="flex flex-col gap-4">
             <ConfigPanel class="bg-gray-900 rounded p-3" />
             <ProcessManager class="bg-gray-900 rounded p-3" />
-            <InstructionInput class="bg-gray-900 rounded p-3" />
-            <StepPanel v-if="store.stepper.running" class="bg-gray-900 rounded p-3 border border-blue-800/50" />
+
+            <!-- Botón de inicio/reset — aquí porque depende de config Y procesos -->
+            <div class="bg-gray-900 rounded p-3">
+              <button
+                v-if="!store.simulationStarted"
+                @click="store.startSimulation()"
+                :disabled="store.processes.length === 0"
+                class="w-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold py-2 rounded transition-colors"
+              >
+                Iniciar simulación
+              </button>
+              <button
+                v-else
+                @click="store.resetSimulator()"
+                class="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs py-2 rounded transition-colors"
+              >
+                Reiniciar simulación
+              </button>
+            </div>
+
+            <div id="section-instruction">
+              <InstructionInput class="bg-gray-900 rounded p-3" />
+              <StepPanel v-if="store.stepper.running" class="bg-gray-900 rounded p-3 border border-blue-800/50 mt-4" />
+            </div>
           </div>
         </section>
 
@@ -138,6 +160,7 @@ const SUBSYSTEM_IDS = {
   pagetable: 'section-pagetable',
   ram: 'section-ram',
   disk: 'section-disk',
+  instruction: 'section-instruction',
 }
 
 watch(() => store.activeSubsystem, (subsystem) => {
@@ -145,7 +168,16 @@ watch(() => store.activeSubsystem, (subsystem) => {
   const id = SUBSYSTEM_IDS[subsystem]
   if (id) {
     setTimeout(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }, 80)
+  }
+})
+
+// Al finalizar el stepper (running: true → false), volver al panel de instrucciones
+watch(() => store.stepper.running, (running, wasRunning) => {
+  if (wasRunning && !running) {
+    setTimeout(() => {
+      document.getElementById('section-instruction')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }, 80)
   }
 })
