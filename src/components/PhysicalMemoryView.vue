@@ -4,12 +4,10 @@ import { storeToRefs } from 'pinia'
 import { useSimulatorStore } from '../stores/simulator'
 import { useProcessLabel } from '../composables/useProcessLabel'
 import { useSubsystemActive } from '../composables/useSubsystemActive'
-import { PROCESS_COLORS } from '../constants'
-
 const store = useSimulatorStore()
 const { physicalMemory, processes, executionLog, tick } = storeToRefs(store)
 const { isActive } = useSubsystemActive('ram')
-const { processName } = useProcessLabel()
+const { processName, processColor } = useProcessLabel()
 
 function isStepTarget(frame) {
   if (!isActive.value) return false
@@ -38,11 +36,6 @@ const lastAffectedFrame = computed(() => {
     .find(e => e.frameAssigned !== null && e.result !== 'CONTEXT_SWITCH')
   return last?.frameAssigned ?? null
 })
-
-function processColor(processId) {
-  const idx = processes.value.findIndex(p => p.id === processId)
-  return PROCESS_COLORS[idx % PROCESS_COLORS.length] ?? PROCESS_COLORS[0]
-}
 
 function isHighlighted(frame) {
   return tick.value > 0 && frame.frameId === lastAffectedFrame.value

@@ -4,12 +4,10 @@ import { storeToRefs } from 'pinia'
 import { useSimulatorStore } from '../stores/simulator'
 import { useProcessLabel } from '../composables/useProcessLabel'
 import { useSubsystemActive } from '../composables/useSubsystemActive'
-import { PROCESS_COLORS } from '../constants'
-
 const store = useSimulatorStore()
 const { disk, processes } = storeToRefs(store)
 const { isActive } = useSubsystemActive('disk')
-const { processName } = useProcessLabel()
+const { processName, processColor } = useProcessLabel()
 
 const sortedDisk = computed(() =>
   [...disk.value].sort((a, b) => b.evictedAt - a.evictedAt),
@@ -23,10 +21,6 @@ function isLatest(entry) {
   return disk.value.length > 0 && entry.evictedAt === latestEvictedAt.value
 }
 
-function processColor(processId) {
-  const idx = processes.value.findIndex(p => p.id === processId)
-  return PROCESS_COLORS[idx % PROCESS_COLORS.length] ?? PROCESS_COLORS[0]
-}
 </script>
 
 <template>
